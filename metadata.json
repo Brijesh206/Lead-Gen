@@ -1,0 +1,5 @@
+{
+  "name": "LeadGen AI",
+  "description": "AI-powered lead generation platform using Gemini and Supabase.",
+  "requestFramePermissions": []
+}
