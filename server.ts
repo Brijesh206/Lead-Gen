@@ -1,6 +1,14 @@
+import dotenv from "dotenv";
+import { fileURLToPath } from "url";
+import path from "path";
+
+// Robustly load .env from the exact directory where server.ts lives
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, ".env") });
+
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
 import cors from "cors";
 
@@ -27,7 +35,13 @@ async function startServer() {
         return res.status(400).json({ error: "Missing required fields" });
       }
 
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        console.error("CRITICAL ERROR: GEMINI_API_KEY is undefined. The .env file was not loaded correctly.");
+        return res.status(500).json({ error: "Server configuration error: GEMINI_API_KEY is missing." });
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
 
       const prompt = `Find ${count} real business leads for the industry "${industry}" in "${location}". 
       Use Google Search to find actual, real-world businesses.
