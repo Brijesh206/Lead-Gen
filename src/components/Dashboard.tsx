@@ -43,12 +43,20 @@ export default function Dashboard() {
       if (res.ok) {
         const data = await res.json();
         if (data.data) {
-          // Exclude certain base models if needed, but the user requested all models on build.nvidia.com 
-          // Assuming integration API returns exactly what they want or comparable
-          setAvailableModels(data.data);
+          // Exclude base, embedding, reward, vision, and other non-chat models
+          // that will throw a 404 on the v1/chat/completions endpoint
+          const validModels = data.data.filter((m: any) => {
+            const lowerId = m.id.toLowerCase();
+            const blockedTerms = ['embed', 'reward', 'guard', 'clip', 'parse', 'pii', 'vl', 'a3b', 'vision', 'tts', 'asr', 'qa-'];
+            return !blockedTerms.some(term => lowerId.includes(term));
+          });
           
-          if (data.data.length > 0 && !data.data.some((m: any) => m.id === 'meta/llama-3.1-70b-instruct')) {
-             setModel(data.data[0].id);
+          setAvailableModels(validModels);
+          
+          // Try to keep the currently selected model if valid, else fallback to llama 3.1 70b, or the first valid model.
+          if (validModels.length > 0 && !validModels.some((m: any) => m.id === model)) {
+             const defaultModel = validModels.find((m: any) => m.id.includes('llama-3.1-70b-instruct')) || validModels[0];
+             setModel(defaultModel.id);
           }
         }
       }
