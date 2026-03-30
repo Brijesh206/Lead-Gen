@@ -16,7 +16,7 @@ async function startServer() {
   const app = express();
   // AI Studio requires 3000 for the preview to work. 
   // Change this to 3001 when running on your Oracle server!
-  const PORT = 3000;
+  const PORT = 3001;
 
   // Enable CORS so your Vercel frontend can call this Oracle backend directly if needed
   app.use(cors());
