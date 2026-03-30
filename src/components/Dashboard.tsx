@@ -23,6 +23,8 @@ export default function Dashboard() {
   const [location, setLocation] = useState('');
   const [count, setCount] = useState(10);
   const [model, setModel] = useState('meta/llama-3.1-70b-instruct');
+  const [availableModels, setAvailableModels] = useState<{ id: string }[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
 
   // Sort state
   const [sortConfig, setSortConfig] = useState<{ key: keyof Lead; direction: 'asc' | 'desc' } | null>(null);
@@ -31,7 +33,31 @@ export default function Dashboard() {
     if (user) {
       fetchLeads();
     }
+    fetchModels();
   }, [user]);
+
+  const fetchModels = async () => {
+    setModelsLoading(true);
+    try {
+      const res = await fetch('/api/models');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.data) {
+          // Exclude certain base models if needed, but the user requested all models on build.nvidia.com 
+          // Assuming integration API returns exactly what they want or comparable
+          setAvailableModels(data.data);
+          
+          if (data.data.length > 0 && !data.data.some((m: any) => m.id === 'meta/llama-3.1-70b-instruct')) {
+             setModel(data.data[0].id);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch models", e);
+    } finally {
+      setModelsLoading(false);
+    }
+  };
 
   const fetchLeads = async () => {
     if (!supabase || !user) return;
@@ -278,12 +304,18 @@ export default function Dashboard() {
                 id="model"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
+                disabled={modelsLoading || availableModels.length === 0}
                 className="flex h-10 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <option value="meta/llama-3.1-70b-instruct">Llama 3.1 70B</option>
-                <option value="meta/llama-3.1-8b-instruct">Llama 3.1 8B</option>
-                <option value="meta/llama-3.1-405b-instruct">Llama 3.1 405B</option>
-                <option value="google/gemma-2-27b-it">Gemma 2 27B</option>
+                {availableModels.length > 0 ? (
+                  availableModels.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.id}
+                    </option>
+                  ))
+                ) : (
+                  <option value="meta/llama-3.1-70b-instruct">Loading models...</option>
+                )}
               </select>
             </div>
             <Button type="submit" disabled={generating} className="w-full">

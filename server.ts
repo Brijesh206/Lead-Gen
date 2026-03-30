@@ -26,6 +26,26 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  app.get("/api/models", async (req, res) => {
+    try {
+      const apiKey = process.env.NVIDIA_API_KEY;
+      const headers: any = {};
+      if (apiKey) {
+        headers["Authorization"] = `Bearer ${apiKey}`;
+      }
+
+      const response = await fetch("https://integrate.api.nvidia.com/v1/models", { headers });
+      if (!response.ok) {
+        throw new Error(`NVIDIA API Error: ${response.status}`);
+      }
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      console.error("Error fetching models:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch models" });
+    }
+  });
+
   app.post("/api/generate-leads", async (req, res) => {
     try {
       const { industry, location, count, model } = req.body;
