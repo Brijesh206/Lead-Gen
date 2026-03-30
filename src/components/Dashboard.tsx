@@ -22,6 +22,7 @@ export default function Dashboard() {
   const [industry, setIndustry] = useState('');
   const [location, setLocation] = useState('');
   const [count, setCount] = useState(10);
+  const [model, setModel] = useState('meta/llama-3.1-70b-instruct');
 
   // Sort state
   const [sortConfig, setSortConfig] = useState<{ key: keyof Lead; direction: 'asc' | 'desc' } | null>(null);
@@ -67,7 +68,7 @@ export default function Dashboard() {
       const response = await fetch('/api/generate-leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ industry, location, count }),
+        body: JSON.stringify({ industry, location, count, model }),
       });
 
       if (!response.ok) {
@@ -238,7 +239,7 @@ export default function Dashboard() {
           className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-200"
         >
           <h2 className="text-lg font-semibold text-zinc-900 mb-4">Generate New Leads</h2>
-          <form onSubmit={handleGenerate} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+          <form onSubmit={handleGenerate} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
             <div className="space-y-2">
               <Label htmlFor="industry">Industry / Domain</Label>
               <Input 
@@ -270,6 +271,20 @@ export default function Dashboard() {
                 onChange={(e) => setCount(parseInt(e.target.value) || 10)}
                 required
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="model">AI Model</Label>
+              <select
+                id="model"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="meta/llama-3.1-70b-instruct">Llama 3.1 70B</option>
+                <option value="meta/llama-3.1-8b-instruct">Llama 3.1 8B</option>
+                <option value="meta/llama-3.1-405b-instruct">Llama 3.1 405B</option>
+                <option value="google/gemma-2-27b-it">Gemma 2 27B</option>
+              </select>
             </div>
             <Button type="submit" disabled={generating} className="w-full">
               {generating ? (

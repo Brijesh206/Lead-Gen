@@ -15,7 +15,7 @@ async function startServer() {
   const app = express();
   // AI Studio requires 3000 for the preview to work. 
   // Change this to 3001 when running on your Oracle server!
-  const PORT = 3000;
+  const PORT = 3001;
 
   // Enable CORS so your Vercel frontend can call this Oracle backend directly if needed
   app.use(cors());
@@ -28,7 +28,7 @@ async function startServer() {
 
   app.post("/api/generate-leads", async (req, res) => {
     try {
-      const { industry, location, count } = req.body;
+      const { industry, location, count, model } = req.body;
 
       if (!industry || !location || !count) {
         return res.status(400).json({ error: "Missing required fields" });
@@ -63,7 +63,7 @@ async function startServer() {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: "meta/llama-3.1-70b-instruct",
+          model: model || "meta/llama-3.1-70b-instruct",
           messages: [
             { 
               role: "system", 
