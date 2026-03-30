@@ -2,11 +2,16 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
+import cors from "cors";
 
 async function startServer() {
   const app = express();
+  // AI Studio requires 3000 for the preview to work. 
+  // Change this to 3001 when running on your Oracle server!
   const PORT = 3000;
 
+  // Enable CORS so your Vercel frontend can call this Oracle backend directly if needed
+  app.use(cors());
   app.use(express.json());
 
   // API routes
@@ -22,32 +27,46 @@ async function startServer() {
         return res.status(400).json({ error: "Missing required fields" });
       }
 
-      // Proxy the request to your external Oracle backend
-      // Note: Adjust the path '/api/generate-leads' if your Oracle server uses a different endpoint
-      const oracleBackendUrl = "http://141.148.217.84:3001/api/generate-leads";
-      
-      const response = await fetch(oracleBackendUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+      const prompt = `Find ${count} real business leads for the industry "${industry}" in "${location}". 
+      Use Google Search to find actual, real-world businesses.
+      For each business, provide the business name, email address (if available, otherwise null), mobile/phone number (if available, otherwise null), website URL (if available, otherwise null), and full physical address.
+      Return the data as a JSON array of objects.`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-pro-preview",
+        contents: prompt,
+        config: {
+          tools: [{ googleSearch: {} }],
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                business_name: { type: Type.STRING },
+                email: { type: Type.STRING, nullable: true },
+                mobile: { type: Type.STRING, nullable: true },
+                website: { type: Type.STRING, nullable: true },
+                address: { type: Type.STRING, nullable: true },
+              },
+              required: ["business_name"],
+            },
+          },
         },
-        body: JSON.stringify({ industry, location, count }),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Oracle server responded with ${response.status}: ${errorText}`);
+      const text = response.text;
+      if (!text) {
+         throw new Error("No response from AI");
       }
 
-      const data = await response.json();
-      
-      // Normalize response to ensure it matches the { leads: [...] } format expected by the frontend
-      const leads = Array.isArray(data) ? data : (data.leads || []);
-      
+      const leads = JSON.parse(text);
       res.json({ leads });
     } catch (error: any) {
-      console.error("Error proxying to Oracle backend:", error);
-      res.status(500).json({ error: error.message || "Failed to generate leads from Oracle backend" });
+      console.error("Error generating leads:", error);
+      res.status(500).json({ error: error.message || "Failed to generate leads" });
     }
   });
 
