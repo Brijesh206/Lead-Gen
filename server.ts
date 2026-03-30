@@ -9,14 +9,13 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
 import cors from "cors";
 
 async function startServer() {
   const app = express();
   // AI Studio requires 3000 for the preview to work. 
   // Change this to 3001 when running on your Oracle server!
-  const PORT = 3001;
+  const PORT = 3000;
 
   // Enable CORS so your Vercel frontend can call this Oracle backend directly if needed
   app.use(cors());
@@ -35,46 +34,61 @@ async function startServer() {
         return res.status(400).json({ error: "Missing required fields" });
       }
 
-      const apiKey = process.env.GEMINI_API_KEY;
+      const apiKey = process.env.NVIDIA_API_KEY;
       if (!apiKey) {
-        console.error("CRITICAL ERROR: GEMINI_API_KEY is undefined. The .env file was not loaded correctly.");
-        return res.status(500).json({ error: "Server configuration error: GEMINI_API_KEY is missing." });
+        console.error("CRITICAL ERROR: NVIDIA_API_KEY is undefined. The .env file was not loaded correctly.");
+        return res.status(500).json({ error: "Server configuration error: NVIDIA_API_KEY is missing." });
       }
-
-      const ai = new GoogleGenAI({ apiKey });
 
       const prompt = `Find ${count} real business leads for the industry "${industry}" in "${location}". 
-      Use Google Search to find actual, real-world businesses.
+      Provide actual, real-world businesses based on your knowledge.
       For each business, provide the business name, email address (if available, otherwise null), mobile/phone number (if available, otherwise null), website URL (if available, otherwise null), and full physical address.
-      Return the data as a JSON array of objects.`;
+      You MUST return ONLY a valid JSON array of objects. Do not include markdown formatting like \`\`\`json.
+      
+      Example format:
+      [
+        {
+          "business_name": "Example Corp",
+          "email": "contact@example.com",
+          "mobile": "+1234567890",
+          "website": "https://example.com",
+          "address": "123 Main St, City, Country"
+        }
+      ]`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: prompt,
-        config: {
-          tools: [{ googleSearch: {} }],
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                business_name: { type: Type.STRING },
-                email: { type: Type.STRING, nullable: true },
-                mobile: { type: Type.STRING, nullable: true },
-                website: { type: Type.STRING, nullable: true },
-                address: { type: Type.STRING, nullable: true },
-              },
-              required: ["business_name"],
-            },
-          },
+      const nvidiaResponse = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
         },
+        body: JSON.stringify({
+          model: "meta/llama-3.1-70b-instruct",
+          messages: [
+            { 
+              role: "system", 
+              content: "You are a helpful lead generation assistant. You only respond with valid JSON arrays containing the requested data. Do not include any conversational text." 
+            },
+            { 
+              role: "user", 
+              content: prompt 
+            }
+          ],
+          temperature: 0.2,
+          max_tokens: 2048,
+        })
       });
 
-      const text = response.text;
-      if (!text) {
-         throw new Error("No response from AI");
+      if (!nvidiaResponse.ok) {
+        const errorText = await nvidiaResponse.text();
+        throw new Error(`NVIDIA API Error: ${nvidiaResponse.status} - ${errorText}`);
       }
+
+      const data = await nvidiaResponse.json();
+      let text = data.choices[0].message.content;
+
+      // Clean up markdown formatting if the model includes it
+      text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
 
       const leads = JSON.parse(text);
       res.json({ leads });
