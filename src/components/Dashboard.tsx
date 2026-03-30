@@ -7,7 +7,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { motion } from 'motion/react';
-import { Download, Search, Loader2, LogOut, Zap, ArrowUpDown } from 'lucide-react';
+import { Download, Search, Loader2, LogOut, Zap, ArrowUpDown, CheckCircle, Trash2, X, AlertCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '../lib/utils';
 
@@ -25,6 +25,11 @@ export default function Dashboard() {
   const [model, setModel] = useState('meta/llama-3.1-70b-instruct');
   const [availableModels, setAvailableModels] = useState<{ id: string }[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+
+  // Review modal state
+  const [pendingLeads, setPendingLeads] = useState<any[]>([]);
+  const [showReview, setShowReview] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // Sort state
   const [sortConfig, setSortConfig] = useState<{ key: keyof Lead; direction: 'asc' | 'desc' } | null>(null);
@@ -112,38 +117,62 @@ export default function Dashboard() {
       const data = await response.json();
       const generatedLeads = data.leads;
 
-      if (supabase && user && generatedLeads.length > 0) {
-        const leadsToInsert = generatedLeads.map((lead: any) => ({
-          user_id: user.id,
-          business_name: lead.business_name,
-          email: lead.email,
-          mobile: lead.mobile,
-          website: lead.website,
-          address: lead.address,
-          industry,
-          location,
-          status: LeadStatus.Pending,
-        }));
+      // Open review modal instead of saving directly
+      setPendingLeads(generatedLeads.map((lead: any, idx: number) => ({ ...lead, _key: idx })));
+      setShowReview(true);
+    } catch (error) {
+      console.error(error);
+      alert('Error generating leads. Check console for details.');
+    } finally {
+      setGenerating(false);
+    }
+  };
 
+  const updatePendingLead = (key: number, field: string, value: string) => {
+    setPendingLeads(prev => prev.map(l => l._key === key ? { ...l, [field]: value } : l));
+  };
+
+  const removePendingLead = (key: number) => {
+    setPendingLeads(prev => prev.filter(l => l._key !== key));
+  };
+
+  const savePendingLeads = async () => {
+    if (pendingLeads.length === 0) return;
+    setSaving(true);
+    try {
+      const leadsToInsert = pendingLeads.map((lead: any) => ({
+        user_id: user?.id,
+        business_name: lead.business_name,
+        email: lead.email || null,
+        mobile: lead.mobile || null,
+        website: lead.website || null,
+        address: lead.address || null,
+        industry,
+        location,
+        status: LeadStatus.Pending,
+      }));
+
+      if (supabase && user) {
         const { error } = await supabase.from('leads').insert(leadsToInsert);
         if (error) {
           console.error('Error saving leads to Supabase:', error);
-          // Still show them in UI even if save fails (e.g., if table doesn't exist yet)
           const newLeads = leadsToInsert.map((l: any) => ({ ...l, id: Math.random().toString(), created_at: new Date().toISOString() }));
           setLeads(prev => [...newLeads, ...prev]);
         } else {
           fetchLeads();
         }
       } else {
-         // If no supabase, just show in UI
-         const newLeads = generatedLeads.map((l: any) => ({ ...l, id: Math.random().toString(), created_at: new Date().toISOString(), industry, location, user_id: user?.id || 'anon', status: LeadStatus.Pending }));
-         setLeads(prev => [...newLeads, ...prev]);
+        const newLeads = leadsToInsert.map((l: any) => ({ ...l, id: Math.random().toString(), created_at: new Date().toISOString(), industry, location, user_id: user?.id || 'anon', status: LeadStatus.Pending }));
+        setLeads(prev => [...newLeads, ...prev]);
       }
-    } catch (error) {
-      console.error(error);
-      alert('Error generating leads. Check console for details.');
+
+      setShowReview(false);
+      setPendingLeads([]);
+    } catch (err) {
+      console.error(err);
+      alert('Error saving leads.');
     } finally {
-      setGenerating(false);
+      setSaving(false);
     }
   };
 
@@ -243,8 +272,169 @@ export default function Dashboard() {
     XLSX.writeFile(workbook, `leads_export_${new Date().getTime()}.xlsx`);
   };
 
+  // Simple email format check
+  const isValidEmail = (email: string | null | undefined) => {
+    if (!email) return true; // null/empty is allowed
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  };
+
   return (
     <div className="min-h-screen bg-zinc-50 flex flex-col">
+
+      {/* ── Review Modal ── */}
+      {showReview && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 backdrop-blur-sm overflow-y-auto py-8 px-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: -20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white rounded-2xl shadow-2xl border border-zinc-200 w-full max-w-6xl"
+          >
+            {/* Modal header */}
+            <div className="flex items-center justify-between p-6 border-b border-zinc-100">
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900">Review Generated Leads</h2>
+                <p className="text-sm text-zinc-500 mt-0.5">
+                  Edit or remove leads before saving. Highlighted rows have suspicious emails.
+                </p>
+              </div>
+              <button
+                onClick={() => { setShowReview(false); setPendingLeads([]); }}
+                className="p-2 rounded-lg hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Stats bar */}
+            <div className="flex items-center gap-6 px-6 py-3 bg-zinc-50 text-sm border-b border-zinc-100">
+              <span className="font-medium text-zinc-700">{pendingLeads.length} leads ready</span>
+              <span className="text-amber-600 flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5" />
+                {pendingLeads.filter(l => !isValidEmail(l.email)).length} suspicious email(s)
+              </span>
+              <span className="text-zinc-400 text-xs ml-auto">Click any cell to edit inline</span>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-zinc-50 text-xs text-zinc-500 font-medium uppercase tracking-wide">
+                    <th className="px-4 py-3 text-left">#</th>
+                    <th className="px-4 py-3 text-left">Business Name</th>
+                    <th className="px-4 py-3 text-left">Email</th>
+                    <th className="px-4 py-3 text-left">Mobile</th>
+                    <th className="px-4 py-3 text-left">Website</th>
+                    <th className="px-4 py-3 text-left">Address</th>
+                    <th className="px-4 py-3 text-center">Remove</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {pendingLeads.map((lead, idx) => {
+                    const emailOk = isValidEmail(lead.email);
+                    return (
+                      <tr key={lead._key} className={cn("group hover:bg-zinc-50/80 transition-colors", !emailOk && "bg-amber-50/60")}>
+                        <td className="px-4 py-2.5 text-zinc-400 font-mono text-xs">{idx + 1}</td>
+                        {/* Business Name */}
+                        <td className="px-4 py-2.5 min-w-[160px]">
+                          <input
+                            className="w-full bg-transparent border-0 border-b border-transparent hover:border-zinc-300 focus:border-zinc-500 outline-none py-0.5 text-zinc-800 font-medium transition-colors"
+                            value={lead.business_name || ''}
+                            onChange={e => updatePendingLead(lead._key, 'business_name', e.target.value)}
+                          />
+                        </td>
+                        {/* Email */}
+                        <td className="px-4 py-2.5 min-w-[180px]">
+                          <div className="flex items-center gap-1">
+                            {!emailOk && <AlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />}
+                            <input
+                              className={cn(
+                                "w-full bg-transparent border-0 border-b outline-none py-0.5 transition-colors",
+                                emailOk
+                                  ? "border-transparent hover:border-zinc-300 focus:border-zinc-500 text-zinc-700"
+                                  : "border-amber-300 hover:border-amber-500 focus:border-amber-600 text-amber-800"
+                              )}
+                              value={lead.email || ''}
+                              onChange={e => updatePendingLead(lead._key, 'email', e.target.value)}
+                              placeholder="no email"
+                            />
+                          </div>
+                        </td>
+                        {/* Mobile */}
+                        <td className="px-4 py-2.5 min-w-[130px]">
+                          <input
+                            className="w-full bg-transparent border-0 border-b border-transparent hover:border-zinc-300 focus:border-zinc-500 outline-none py-0.5 text-zinc-700 transition-colors"
+                            value={lead.mobile || ''}
+                            onChange={e => updatePendingLead(lead._key, 'mobile', e.target.value)}
+                            placeholder="none"
+                          />
+                        </td>
+                        {/* Website */}
+                        <td className="px-4 py-2.5 min-w-[150px]">
+                          <input
+                            className="w-full bg-transparent border-0 border-b border-transparent hover:border-zinc-300 focus:border-zinc-500 outline-none py-0.5 text-zinc-700 transition-colors"
+                            value={lead.website || ''}
+                            onChange={e => updatePendingLead(lead._key, 'website', e.target.value)}
+                            placeholder="none"
+                          />
+                        </td>
+                        {/* Address */}
+                        <td className="px-4 py-2.5 min-w-[200px]">
+                          <input
+                            className="w-full bg-transparent border-0 border-b border-transparent hover:border-zinc-300 focus:border-zinc-500 outline-none py-0.5 text-zinc-700 transition-colors"
+                            value={lead.address || ''}
+                            onChange={e => updatePendingLead(lead._key, 'address', e.target.value)}
+                            placeholder="none"
+                          />
+                        </td>
+                        {/* Delete */}
+                        <td className="px-4 py-2.5 text-center">
+                          <button
+                            onClick={() => removePendingLead(lead._key)}
+                            className="p-1.5 rounded-lg text-zinc-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                            title="Remove this lead"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {pendingLeads.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-10 text-center text-zinc-400 text-sm">
+                        All leads removed. Close the modal to generate again.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal footer */}
+            <div className="flex items-center justify-between p-6 border-t border-zinc-100 bg-zinc-50 rounded-b-2xl">
+              <button
+                onClick={() => { setShowReview(false); setPendingLeads([]); }}
+                className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-800 transition-colors"
+              >
+                Discard all
+              </button>
+              <Button
+                onClick={savePendingLeads}
+                disabled={saving || pendingLeads.length === 0}
+                className="flex items-center gap-2"
+              >
+                {saving ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
+                ) : (
+                  <><CheckCircle className="w-4 h-4" /> Save {pendingLeads.length} Lead{pendingLeads.length !== 1 ? 's' : ''}</>
+                )}
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white border-b border-zinc-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
